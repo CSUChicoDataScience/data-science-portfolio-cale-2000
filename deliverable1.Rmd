@@ -61,7 +61,7 @@ ggplot(data = NBA_stats) +
   labs(title = "Away Team Point Distribution", x = "Points Scored", y = "Games")
 ```
 
-Each histogram shows the total point distribution for every game played in the season. The first graph is home teams and the bottom is away teams. 
+Each histogram shows the total point distribution for every game played in the season. The first graph is home teams and the bottom is away teams. When comparing both of the distributions they look very similar. However, in a more detailed look seem to generally have a larger count of games that are higher scoring. Also the away teams have more games with lower scoring totals. It is easily seen in these graphs where the average is, and it is easy to pick out some of the outlier scores. 
 
 ```{r}
 NBA_stats <- read_csv("2018-2019_NBA_game_logs - Sheet1.csv")
@@ -69,7 +69,7 @@ ggplot(data = NBA_stats) +
   geom_point(aes(x = PTS_1, y = Attendance))
 ```
 
-This simple scatter plot is aimed at trying to visualize a potential correlation between fan attendance and points scored by the home team. The graph does not really depict any sort of clear correlation between these two variables. There is however a larger concentration of higher points scored and higher attendance numbers, but there are also many points that are lower scoring with the similar attendance numbers.   
+This scatter plot is aimed at trying to visualize a potential correlation between fan attendance and points scored by the home team. The graph does not really depict any sort of clear correlation between these two variables. There is however a larger concentration of higher points scored and higher attendance numbers, but there are also many points that are lower scoring with the similar attendance numbers.   
 A better analysis might be to take average fan attendance for each team and average points scored. Also a limitation to this is that not every NBA stadium holds the same number of people, so one stadium might not even have a max capacity as other stadiums. 
 
 ##Further Questions
