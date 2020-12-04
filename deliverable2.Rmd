@@ -1,0 +1,221 @@
+---
+title: "deliverable2"
+author: "Craig Le"
+date: "12/3/2020"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(rvest)
+library(tidyverse)
+library(modelr)
+library(caret)
+set.seed(1234)
+```
+
+## Dataset
+
+My second dataset was compiled from the official NBA website, and it includes more than just home and away final scores. It includes each individual team's box scores stats for every game of the 2018-2019 season. It is 2460 rows, and each row is not the box stats from one single game. To clarify one single game separates each team's box stats into individual rows. For example, April 10, 2019 the Warriors (GSW) played against the Grizzlies (MEM); the first row is the Grizzlies stat line, and the second row is the Warriors stat line. Both of these rows are stats from the same game just separated by team. From my first dataset I want to take the attendance column and use those values for a prediction model. 
+
+```{r}
+
+#url <- c("https://www.nba.com/stats/teams/boxscores/?Season=2018-19&SeasonType=Regular%20Season")
+#NBA_box_stats <- read_html(url) %>% html_nodes("main") %>% 
+# html_nodes("[class = 'nba-stat-table' ]") %>% #html_text()
+
+#Renaming some columns that have unwanted symbols
+NBA_box_stats <- as_tibble(read_csv("2018-19_detailed_box - Sheet1.csv"))
+NBA_box_stats <- NBA_box_stats %>% rename("PLUS/MINUS" = "#ERROR!")
+NBA_box_stats <- NBA_box_stats %>% rename("THREE_PTM" = "3:00 PM")
+NBA_box_stats <- NBA_box_stats %>% rename("THREE_PTA" = "3PA")
+NBA_box_stats <- NBA_box_stats %>% rename("THREE_PTPERCENT" = "3P%")
+NBA_box_stats <- NBA_box_stats %>% rename("FG_PERCENT" = "FG%")
+NBA_box_stats <- NBA_box_stats %>% rename("FT_PERCENT" = "FT%")
+NBA_box_stats <- NBA_box_stats %>% rename("W_or_L" = "W/L")
+NBA_box_stats
+summary(NBA_box_stats)
+
+```
+
+It is really interesting looking at the summary of this table. From the summary I can really get a sense of how much basketball is sport with a lot of high and lot of low points.
+For example, in the summary of the 3 point field goal attempts the max value is 70 and the minimum value is 12. I looked through my data and found the Houston Rockets were responsible for the 70 attempts,
+and the Los Angeles Clippers had the lowest 3 point attempts. I also found that Houston was responsible for the top three most 3 pointers attempted that season. Almost every column features a large gap between the min and max values. Another example is the point totals. The minimum points was 68 and the max was 168. The max points came from a quadruple overtime game between the Chicago Bulls and Atlanta Hawks, so this max point value is definitely an outlier data point. 
+
+## Model Planning and Building
+
+Before I try to incorporate home court vs away factors, I want to do a general points prediction of all teams without home or away factors. I am using rebounds and assists as the variables for predicting points scored. Generally in basketball getting more rebounds means that a team is able to posses the ball more teams which leads to more opportunities to score, so based on that thought rebounds should be a solid variable to use in my model. In basketball an assist is counted when there is a pass made that directly leads to a basket getting scored, so numerically the more assists a team has than the more points they have. Also getting more assists in a game usually indicates that a team is executing their sets very well and also working really well as a team, as a result these un-trackable factors usually lead to more points being scored. 
+
+```{r}
+
+#Partitioning my test set for my model
+#Data split 60 training 20 validation and 20 for testing
+leftover_rows <- as.vector(createDataPartition(NBA_box_stats$PTS, p = 0.8, list = FALSE))
+test_set <- NBA_box_stats[-leftover_rows, ]
+leftover <- NBA_box_stats[leftover_rows, ]
+leftover
+#summary(leftover)
+
+#Initial exploratory graphs to check my initial thinking 
+#and also to explore other options
+
+ggplot(data = leftover) +
+  geom_point(mapping = aes(x = THREE_PTPERCENT, y = PTS), alpha = .8)
+
+ggplot(data = leftover) +
+  geom_point(mapping = aes(x = REB, y = PTS), alpha = .8)
+
+ggplot(data = leftover) +
+  geom_point(mapping = aes(x = AST, y = PTS), alpha = .8)
+
+ggplot(data = leftover) +
+  geom_point(mapping = aes(x = FT_PERCENT, y = PTS), alpha = .8)
+
+ggplot(data = leftover) +
+  geom_point(mapping = aes(x = FTA, y = PTS), alpha = .8)
+# The assists vs points graph has an expected increasing trend. Surprisingly the   
+# rebounds vs points did not have as strong of a relationship as I thought, but  
+# there is still an increasing trend. Free throw attempts and percentage were 
+# similar to the rebound graph. The three point percentage graph showed a pretty strong 
+# relationship to points, so maybe it could used as a variable in the future. 
+
+#Creating the training and validation sets 
+training_rows <- as.vector(createDataPartition(leftover$PTS, p = 0.75, list = FALSE))
+validate_rows <- leftover[-training_rows, ]
+training <- leftover[training_rows, ]
+training
+validate_rows
+
+#Training my model on the training set
+model <- lm(PTS ~ REB + AST, data = training)
+
+predictions <- add_predictions(validate_rows, model)
+predictions
+
+ggplot(data = predictions, mapping = aes(x = PTS, y = pred)) + 
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, color = "purple") +
+  labs(y = "Predictions", x = "Points", title = "Validation Predictions")
+# At a glance my validation set predictions look decent. There are many points
+# that are near the perfect prediction line, and there are points that fall directly on
+# that line. Also there is a decently clear trend that follows the prediction line.
+# However, there are also many clear outlier data values that can be seen on the graph. 
+
+validate_resid <- add_residuals(validate_rows, model)
+validate_resid
+
+ggplot(validate_resid, aes(REB, resid)) +
+  geom_ref_line(h = 0) +
+  geom_point() +
+  labs(y = "Residuals", x = "Rebounds", title = "Validation Residuals")
+
+ggplot(validate_resid, aes(AST, resid)) +
+  geom_ref_line(h = 0) +
+  geom_point() +
+  labs(y = "Residuals", x = "Assists", title = "Validation Residuals")
+# Both of my residual graphs seem pretty solid. There does not seem to be any noticeable 
+# trends for both the assists and rebounds. This indicates that my model did a solid job at
+# removing patterns that might have existed. 
+
+# Calculating goodness-of-fit measures for my model on the validation set
+R2(predictions$pred, predictions$PTS)
+MAE(predictions$pred, predictions$PTS)
+RMSE(predictions$pred, predictions$PTS)
+
+model
+summary(model)
+
+predictions <- add_predictions(test_set, model)
+predictions
+
+ggplot(data = predictions, mapping = aes(x = PTS, y = pred)) + 
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, color = "purple") +
+  labs(y = "Predictions", x = "Points", title = "Test Predictions")
+
+test_resids <- add_residuals(test_set, model)
+test_resids
+
+ggplot(data = test_resids, mapping = aes(x = REB, y = resid)) +
+  geom_ref_line(h = 0) +
+  geom_point() +
+  labs(y = "Residuals", x = "Rebounds", title = "Test Residuals")
+
+ggplot(data = test_resids, mapping = aes(x = AST, y = resid)) +
+  geom_ref_line(h = 0) +
+  geom_point() +
+  labs(y = "Residuals", x = "Assists", title = "Test Residuals")
+
+# Calculating goodness-of-fit measures for my model on the test set
+R2(predictions$pred, predictions$PTS)
+MAE(predictions$pred, predictions$PTS)
+RMSE(predictions$pred, predictions$PTS)
+
+```
+
+## Observations 
+In general my model does a decent job at predicting points scored. When comparing my training and testing results, there is not anything to be too concerned about. 
+The prediction results of each are very similar and both visualtions in the same way display that my model could definitely be improved. Between the residual graphs of training and testing,
+there are not any major discrepancies that need to be addressed. 
+
+My R^2, MAE, RMSE values are also similar between testing and training. 
+
+For training: 
+
+* R^2  =  0.3624039
+* MAE  =  8.266143
+* RMSE =  10.37754
+
+For testing:
+
+* R^2  =  0.3539825
+* MAE  =  7.950831
+* RMSE =  9.936166
+
+There does not seem to be any evidence of overfitting or extremely better performance with the test set. In testing my model actually showed slightly worst performance than in training. 
+
+## Potential Social and Ethical Implications
+In recent years basketball has become more reliant on analytics, but there are still many unmeasurable factors during a basketball game. 
+A simple model like mine doesn't really have enough substance to fully confirm that assists and rebounds lead to more points.
+It does a decent job at getting a general understanding of how these variables can affect the points scored. Ethically this model 
+could be used to present misleading information about the effects of rebounding and total assists. For example, I could choose a prediction value that
+happens to be a perfect prediction and use that as confirmation bias for the general belief that "Better rebounding = more points scored". But in reality 
+that statement is not completely true. 
+
+## Fine tuning my goal
+My initial model gave a good general idea about more in depth relationships between my variables. I would still like to be able to analyze home court advantage, but I need to make 
+adjustments and changes to my datasets in order to make that happen. 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
