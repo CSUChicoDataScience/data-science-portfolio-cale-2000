@@ -1,0 +1,206 @@
+---
+title: "deliverable3"
+author: "Craig Le"
+date: "12/14/2020"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(rvest)
+library(tidyverse)
+library(modelr)
+library(caret)
+set.seed(1234)
+```
+
+## Reviewing and Revising 
+
+From deliverable 1 to deliverable 2, my project has gone pretty smoothly. My datasets were 
+not too difficult to find, and I have only had to do minimal tidying to both of them. The main bit of tidying that I had to do was changing column names in order to make them suitable for performing code operations on them. Also for my second dataset I decided to keep all rows separate in order to do an explicit separation between the home and away team stats. I created two extra tibbles that hold every single away team and home team. I then added a column that marked them as either home (H) or away (A), so that when I merged the two tables back together I knew for sure that each home and away team was properly marked.   
+
+```{r}
+
+#Renaming some columns that have unwanted symbols
+NBA_box_stats <- as_tibble(read_csv("2018-19_detailed_box - Sheet1.csv"))
+NBA_box_stats <- NBA_box_stats %>% rename("PLUS/MINUS" = "#ERROR!")
+NBA_box_stats <- NBA_box_stats %>% rename("THREE_PTM" = "3:00 PM")
+NBA_box_stats <- NBA_box_stats %>% rename("THREE_PTA" = "3PA")
+NBA_box_stats <- NBA_box_stats %>% rename("THREE_PTPERCENT" = "3P%")
+NBA_box_stats <- NBA_box_stats %>% rename("FG_PERCENT" = "FG%")
+NBA_box_stats <- NBA_box_stats %>% rename("FT_PERCENT" = "FT%")
+NBA_box_stats <- NBA_box_stats %>% rename("W_or_L" = "W/L")
+NBA_box_stats <- NBA_box_stats %>% rename("Match_Up" = "Match Up")
+NBA_box_stats <- NBA_box_stats %>% rename("Game_Date" = "Game Date")
+#NBA_box_stats
+#summary(NBA_box_stats)
+
+Home_games <- NBA_box_stats %>% filter(str_detect(Match_Up, 'vs.'))
+Away_games <- NBA_box_stats %>% filter(str_detect(Match_Up, '@'))
+
+Home_games$Status <- paste("H")
+Away_games$Status <- paste("A")
+
+NBA_box_stats <- as_tibble(merge(Home_games, Away_games, all = TRUE))
+
+Home_games
+summary(Home_games)
+Away_games
+summary(Away_games)
+
+```
+
+Looking at the summaries of the away and home data there are some surprising observations that can be made. For example, I really expected the field goal percent to have a bigger discrepancy between home and away teams, but the averages between the two are actually quite similar. The home team had about a 1 percent advantage at 46.67 percent compared to away teams at 45.62. Also looking at three point percentage both values are around the 35 percent mark. This solidifies further that the league average is about 35 percent. Also another tentative take away from these two values is that it seems like no matter the location shooting percentages are gonna be really similar. 
+ 
+```{r}
+ggplot(data = NBA_box_stats) +
+  geom_histogram(mapping = aes(x = PTS, fill = Status), bins = 100, color = 'black') + 
+  labs(title = "Point Distribution for Away and Home Teams", x = "Points Scored", y = "Games")
+```
+
+This histogram is an improved display of the point distributions for home and away teams. I now have them graphed on the same axis. Yet again it displays that home and away teams are relatively similar in their points scored. However, it also displays that the home team has many more games where they are scoring very high point totals. Also the away team has higher count of lower scoring games than the home team. 
+
+* Average Home Points Scored = 112.6
+* Average Away Points Scored = 109.8
+
+```{r}
+ggplot(data = NBA_box_stats) +
+  geom_bar(mapping = aes(x = W_or_L, fill = Status))
+```
+
+This graph is a simple bar chart displaying that home teams won more games than away teams. These results are not completely based in statistics; there are other untrackable factors that will play a part in the performance of certain team. For example, the amount of travel, back to back games, many games within a short stretch of time, and whether a certain team's roster is at full strength. 
+
+## Model Refining
+
+```{r}
+ggplot(data = NBA_box_stats) +
+  geom_point(mapping = aes(x = FG_PERCENT, y = PTS, color = Status), alpha = .8)
+
+ggplot(data = NBA_box_stats) +
+  geom_point(mapping = aes(x = FGA, y = FG_PERCENT), alpha = .8)
+```
+
+The first graph displays field goal percentage vs points scored; visually there is definitely an upwards trend between the two variables. The second graph is a plot between field goal attempts and field goal percentage; there is not a very clear correlation between the two, but it is important to note that after the 100 fga mark there are not many values that are above 50 percent in terms of the shooting percentage. Also the really high field goal percentage values occured mainly when a team took less than about 100 fgas. 
+
+To try and improve the performance of my previous model I decided to try and also incorporate field goal percentage. 
+
+```{r}
+#Partitioning my test set for my model
+#Data split 60 training 20 validation and 20 for testing
+leftover_rows <- as.vector(createDataPartition(NBA_box_stats$PTS, p = 0.8, list = FALSE))
+test_set <- NBA_box_stats[-leftover_rows, ]
+leftover <- NBA_box_stats[leftover_rows, ]
+leftover
+
+#Creating the training and validation sets 
+training_rows <- as.vector(createDataPartition(leftover$PTS, p = 0.75, list = FALSE))
+validate_rows <- leftover[-training_rows, ]
+training <- leftover[training_rows, ]
+training
+validate_rows
+
+#Training my model on the training set
+model <- lm(PTS ~ FG_PERCENT + REB + AST, data = training)
+```
+
+```{r}
+predictions <- add_predictions(validate_rows, model)
+predictions
+
+ggplot(data = predictions, mapping = aes(x = PTS, y = pred)) + 
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, color = "purple") +
+  labs(y = "Predictions", x = "Points", title = "Validation Predictions")
+ 
+
+validate_resid <- add_residuals(validate_rows, model)
+validate_resid
+
+ggplot(validate_resid, aes(REB, resid)) +
+  geom_ref_line(h = 0) +
+  geom_point() +
+  labs(y = "Residuals", x = "Rebounds", title = "Validation Residuals")
+
+ggplot(validate_resid, aes(AST, resid)) +
+  geom_ref_line(h = 0) +
+  geom_point() +
+  labs(y = "Residuals", x = "Assists", title = "Validation Residuals")
+
+ggplot(validate_resid, aes(FG_PERCENT, resid)) +
+  geom_ref_line(h = 0) +
+  geom_point() +
+  labs(y = "Residuals", x = "FG Percent", title = "Validation Residuals")
+
+
+# Calculating goodness-of-fit measures for my model on the validation set
+R2(predictions$pred, predictions$PTS)
+MAE(predictions$pred, predictions$PTS)
+RMSE(predictions$pred, predictions$PTS)
+```
+
+Yet again my validation predictions look pretty solid. There are a good amount of points that are on the perfect prediction line, and there are not many extremely far off predictions; most of the predictions stay close to the line. 
+
+My residual plots for assists and rebounds are also decent. They are both pretty random without any noticeable patterns. However, my field goal percent residuals do not look as reliable. The plot still has a good amount of randomness, but there is definitely a lot of concentration between 50 and 40 percent. 
+
+
+```{r}
+model
+summary(model)
+
+predictions <- add_predictions(test_set, model)
+predictions
+
+ggplot(data = predictions, mapping = aes(x = PTS, y = pred)) + 
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, color = "purple") +
+  labs(y = "Predictions", x = "Points", title = "Test Predictions")
+
+test_resids <- add_residuals(test_set, model)
+test_resids
+
+ggplot(data = test_resids, mapping = aes(x = REB, y = resid)) +
+  geom_ref_line(h = 0) +
+  geom_point() +
+  labs(y = "Residuals", x = "Rebounds", title = "Test Residuals")
+
+ggplot(data = test_resids, mapping = aes(x = AST, y = resid)) +
+  geom_ref_line(h = 0) +
+  geom_point() +
+  labs(y = "Residuals", x = "Assists", title = "Test Residuals")
+
+ggplot(data = test_resids, mapping = aes(x = FG_PERCENT, y = resid)) +
+  geom_ref_line(h = 0) +
+  geom_point() +
+  labs(y = "Residuals", x = "FG Percent", title = "Test Residuals")
+
+# Calculating goodness-of-fit measures for my model on the test set
+R2(predictions$pred, predictions$PTS)
+MAE(predictions$pred, predictions$PTS)
+RMSE(predictions$pred, predictions$PTS)
+```
+
+## Observations and Ethics discussion
+Again my model visually seems like it does a decent job at predicting points scored. Analyzing my training and testing results there is not anything that looks concerning. 
+Both my prediction results and test results display the same trends, and there is not any massive discrepancies between the visual plots.
+
+My R^2, MAE, RMSE values are also very similar between testing and training. Between the previous iteration and this iteration my R^2 value is much nicer. In testing it went from about .35 to no .60. Also this time around my model in testing performed slightly better than in training. Based on this there does not seem to be any evidence of overfitting or extremely better performance with the test set.
+
+For training: 
+
+* R^2  =  0.5825813
+* MAE  =  6.524534
+* RMSE =  8.406944
+
+For testing:
+
+* R^2  =  0.6046627
+* MAE  =  5.944814
+* RMSE =  7.60912
+
+This model definitely performs better than my previous iteration that only used two variables to make predictions. However, there is still a considerable amount of uncertainty. One main concern is that field goal percent is not directly indicitive of points scored; for example, one team might have a 50 percent field percentage, but they could have taken considerably less shot attempts than another team that shot 40 percent from the floor. This is important because the team with less attempts and a higher percentage may have less field goals made which means less points. So in general this could also be misleading if someone is not paying attention. 
+
+## Conclusions and discussion 
+Throughout the whole process of my project my main goals and data exploration took on a few changes. One main change was my exploration and use of the attendance figure. The attendance figure for each game proved to be not that useful to my project specifically. There is multiple reasons for this: a main reason is that each team's stadium has a maximum capacity, so more popular teams are consistently selling out their stadium which means that there is not much variance in their attendance numbers, and because a team is not scoring the same amount of points each game it makes it difficult to visualize any potential trends from that data. This is quite clearly visualized in my deliverable 1 plot of attendance vs home team points. It is easy to see a number of points that form practically horizontal lines throughout the graph. However, in a different context and project direction it could be very interesting. For example, in the future I could decide to use each team's game attendance figures in order to do analysis based on each team. In general I think my goal of analyzing away vs home team performance could use a lot of refining. Using the original base stats most likely is not detailed enough to come up with solid predictions; in order to have really solid analysis I would probably need to take a look at advance analytics which are much more detailed and provide a more in depth look to a team's performance. Overall, I think there is a lot of room for my project to grow. There is definitely much more data available that I could analyze in order to make a more solid in depth model. 
